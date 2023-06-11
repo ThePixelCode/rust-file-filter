@@ -1,107 +1,19 @@
-use std::{env::{Args, current_dir}, path::{PathBuf, Path}, process::exit, fs::{read_dir, File, remove_file, rename}, io::Read};
+use std::{env::{Args, current_dir}, path::PathBuf, process::exit};
 
-use ring::digest::{Context, SHA256, Digest};
+use enums::InConflictDo;
+use filterbyhash::FilterByHash;
+use structs::Config;
+use traits::OperationHandler;
 
-use hex;
+mod filterbyhash;
+mod traits;
+mod structs;
+mod enums;
 
 pub fn print_error_and_gracefully_exit(error: &str) -> ! {
     println!("An Error Ocurred
     The Error was: {}", error);
     exit(1);
-}
-
-pub trait OperationHandler {
-    fn run(&mut self) -> Result<(), &'static str>;
-}
-
-enum InConflictDo {
-    Delete,
-    Ask,
-    Inform,
-    Move(String),
-}
-
-struct Config {
-    folder: String,
-    in_conflict_do: InConflictDo,
-}
-
-
-struct FilterByHash {
-    folder: String,
-    in_conflict_do: InConflictDo,
-    hash_list: Vec<Digest>,
-}
-
-impl OperationHandler for FilterByHash {
-    fn run(&mut self) -> Result<(), &'static str> {
-        let files: Vec<_> = match read_dir(&self.folder) {
-            Ok(entries) => {
-                entries.filter_map(|entry| {
-                    if let Ok(entry) = entry {
-                        if let Ok(file_type) = entry.file_type() {
-                            if file_type.is_file() {
-                                let file_name = entry.file_name();
-                                return Some(PathBuf::from(&self.folder).join(file_name))
-                            }
-                        }
-                    }
-                    None
-                }).collect()
-            },
-            Err(_) => return Err("Unable to read folder"),
-        };
-        for file_path in files {
-            let file = match File::open(&file_path) {
-                Ok(file) => Some(file),
-                Err(_) => None,
-            };
-            if let Some(mut file) = file {
-                let mut buffer = Vec::new();
-                match file.read_to_end(&mut buffer) {
-                    Ok(_) => (),
-                    Err(_) => continue,
-                }
-                let mut context = Context::new(&SHA256);
-                context.update(&buffer);
-                let digest = context.finish();
-                match self.hash_list.binary_search_by(|probe| {
-                    probe.as_ref().cmp(digest.as_ref())
-                }) {
-                    Ok(_) => {
-                        match &self.in_conflict_do {
-                            InConflictDo::Delete => {
-                                match remove_file(&file_path) {
-                                    Ok(_) => {
-                                        println!("File {} deleted", &file_path.display());
-                                    },
-                                    Err(_) => return Err("Unable to delete file"),
-                                }
-                            },
-                            InConflictDo::Ask => todo!(),
-                            InConflictDo::Inform => {
-                                println!("File {} is repeated, hash: {}", &file_path.display(), hex::encode(digest));
-                            },
-                            InConflictDo::Move(folder) => {
-                                let file_name = file_path.file_name().unwrap();
-                                let destination = Path::new(folder.as_str()).join(file_name);
-                                match rename(&file_path, &destination) {
-                                    Ok(_) => {
-                                        println!("File {} moved to {}", &file_path.display(), &destination.display());
-                                    },
-                                    Err(_) => return Err("Unable to move file"),
-                                }
-                            },
-                        }
-                    },
-                    Err(index) => {
-                        self.hash_list.insert(index, digest);
-                    },
-                }
-            }
-        }
-        return Ok(());
-    }
 }
 
 fn check_absolute_path(path: String) -> Result<String, &'static str> {
