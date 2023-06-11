@@ -50,9 +50,10 @@ impl FilterByHash {
                         let mut input = String::new();
                         match stdin.read_line(&mut input) {
                             Ok(_) => {
-                                match check_absolute_path(input).and_then(|path| {
-                                                                    self.move_file(&file_path, &path)
-                                                                }) {
+                                match check_absolute_path(input)
+                                .and_then(|path| {
+                                    self.move_file(&file_path, &path)
+                                }) {
                                     Ok(_) => {()},
                                     Err(e) => return Err(e),
                                 }
